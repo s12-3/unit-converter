@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>单位换算器</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;background:#f5f7fb;margin:0;padding:30px;
+         display:flex;align-items:center;justify-content:center;min-height:100vh;}
+    .card{background:#fff;padding:20px;border-radius:12px;box-shadow:0 8px 24px rgba(11,20,40,0.06);
+          width:100%;max-width:720px;}
+    h1{margin:0 0 8px;font-size:20px}
+    p.lead{margin:0 0 16px;color:#555}
+    .row{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+    input[type="number"], select{flex:1;padding:10px;border:1px solid #e0e6ef;border-radius:8px}
+    button{padding:10px 14px;border-radius:8px;border:0;background:#0b74de;color:#fff;cursor:pointer}
+    #result{margin-top:12px;padding:12px;background:#f0f6ff;border-radius:8px;color:#0b3b82;font-weight:600}
+    .small{font-size:13px;color:#666}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>单位换算器</h1>
+    <p class="lead">选择领域（如长度/重量/温度），输入数值，选择源单位和目标单位，点击“换算”。</p>
+
+    <div class="row">
+      <label class="small" style="min-width:120px;align-self:center;">领域：</label>
+      <select id="category" onchange="populateUnits()" style="max-width:300px;">
+        <option value="length">长度（m, km, cm, in, ft）</option>
+        <option value="mass">质量（kg, g, lb, oz）</option>
+        <option value="temperature">温度（°C, °F, K）</option>
+        <option value="volume">体积（L, mL, m³, fl-oz）</option>
+        <option value="area">面积（m², cm², km², ft²）</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <input type="number" id="inputValue" placeholder="输入数值（例如 10）" />
+      <select id="fromUnit"></select>
+      <select id="toUnit"></select>
+    </div>
+
+    <div class="row">
+      <button onclick="convert()">换算</button>
+      <button onclick="swapUnits()" style="background:#6c757d">交换单位</button>
+      <button onclick="copyResult()" style="background:#28a745">复制结果</button>
+    </div>
+
+    <div id="result">结果将在这里显示</div>
+    <p class="small" style="margin-top:10px;">
+      提示：你可以修改代码增加更多单位或领域；若要做货币换算，需额外接入汇率 API（高级）。
+    </p>
+  </div>
+
+  <script>
+    // 单位与换算到 基准 单位 的比例（非温度，温度需单独处理）
+    const units = {
+      length: {
+        base: 'm',
+        map: {
+          m: 1,
+          km: 1000,
+          cm: 0.01,
+          in: 0.0254,
+          ft: 0.3048
+        }
+      },
+      mass: {
+        base: 'kg',
+        map: {
+          kg: 1,
+          g: 0.001,
+          lb: 0.45359237,
+          oz: 0.0283495231
+        }
+      },
+      volume: {
+        base: 'L',
+        map: {
+          L: 1,
+          mL: 0.001,
+          "m^3": 1000,
+          "fl-oz": 0.0295735
+        }
+      },
+      area: {
+        base: 'm^2',
+        map: {
+          "m^2": 1,
+          "cm^2": 0.0001,
+          "km^2": 1000000,
+          "ft^2": 0.092903
+        }
+      },
+      // 温度单独处理
+      temperature: {
+        map: { "C": "C", "F": "F", "K": "K" }
+      }
+    };
+
+    const fromUnitEl = document.getElementById('fromUnit');
+    const toUnitEl = document.getElementById('toUnit');
+
+    function populateUnits(){
+      const cat = document.getElementById('category').value;
+      fromUnitEl.innerHTML = '';
+      toUnitEl.innerHTML = '';
+      if(cat === 'temperature'){
+        ['C','F','K'].forEach(u => {
+          const o1 = new Option(u,u);
+          const o2 = new Option(u,u);
+          fromUnitEl.add(o1); toUnitEl.add(o2);
+        });
+      } else {
+        const keys = Object.keys(units[cat].map);
+        keys.forEach(u => {
+          fromUnitEl.add(new Option(u,u));
+          toUnitEl.add(new Option(u,u));
+        });
+      }
+      // 默认选择不同单位
+      fromUnitEl.selectedIndex = 0;
+      toUnitEl.selectedIndex = 1 < toUnitEl.length ? 1 : 0;
+    }
+
+    // 交换单位
+    function swapUnits(){
+      const a = fromUnitEl.value;
+      fromUnitEl.value = toUnitEl.value;
+      toUnitEl.value = a;
+      convert();
+    }
+
+    // 主换算逻辑
+    function convert(){
+      const cat = document.getElementById('category').value;
+      const val = parseFloat(document.getElementById('inputValue').value);
+      const from = fromUnitEl.value;
+      const to = toUnitEl.value;
+      const resultEl = document.getElementById('result');
+
+      if(isNaN(val)){
+        resultEl.innerText = '请输入有效数字';
+        return;
+      }
+
+      if(cat === 'temperature'){
+        const converted = convertTemperature(val, from, to);
+        resultEl.innerText = `${val} ${from} = ${round(converted)} ${to}`;
+        return;
+      }
+
+      const map = units[cat].map;
+      // 转到基准单位，再转到目标
+      const valueInBase = val * map[from];
+      const converted = valueInBase / map[to];
+      resultEl.innerText = `${val} ${from} = ${round(converted)} ${to}`;
+    }
+
+    function round(n){
+      if(Math.abs(n) < 0.000001) return 0;
+      return Math.round(n * 100000) / 100000;
+    }
+
+    // 温度转换（C, F, K）
+    function convertTemperature(value, from, to){
+      let c;
+      if(from === 'C') c = value;
+      if(from === 'F') c = (value - 32) * 5/9;
+      if(from === 'K') c = value - 273.15;
+      if(to === 'C') return c;
+      if(to === 'F') return c * 9/5 + 32;
+      if(to === 'K') return c + 273.15;
+    }
+
+    // 复制结果到剪贴板
+    function copyResult(){
+      const txt = document.getElementById('result').innerText;
+      navigator.clipboard?.writeText(txt).then(()=> alert('已复制：\\n' + txt)).catch(()=> alert('复制失败'));
+    }
+
+    // 页面初始填充单位
+    populateUnits();
+  </script>
+</body>
+</html>
